@@ -1,5 +1,6 @@
 import { parsePrismaSchema } from './src/parsers/prisma-parser.js';
 import { parseDrizzleSchema } from './src/parsers/drizzle-parser.js';
+import { generateDrizzleSchema } from './src/generators/drizzle-generator.js';
 
 const schema = `
 datasource db {
@@ -60,6 +61,24 @@ export const postsRelations = relations(posts, ({ one }) => ({
   user: one(users, { fields: [posts.userId], references: [users.id] }),
 }));
 `;
+
+const m2mSchema = `
+datasource db {
+  provider = "postgresql"
+}
+
+model Post {
+  id   Int    @id @default(autoincrement())
+  tags Tag[]
+}
+
+model Tag {
+  id    Int    @id @default(autoincrement())
+  posts Post[]
+}
+`;
+
+parsePrismaSchema(m2mSchema).then((schema) => generateDrizzleSchema(schema)).then(console.log);
 
 parseDrizzleSchema(drizzleSchema).then((result) => {
   console.log(JSON.stringify(result, null, 2));
