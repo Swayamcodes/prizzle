@@ -10,6 +10,7 @@ interface DialectConfig {
 interface GeneratedColumn {
   source: string;
   imports: readonly string[];
+  ormImports: readonly string[];
 }
 
 const DIALECTS: Readonly<Record<Schema['database'], DialectConfig>> = {
@@ -27,20 +28,32 @@ export async function generateDrizzleSchema(schema: Schema): Promise<string> {
     ...manyToManyWarnings(schema.tables),
   ]);
   const columnImports = new Set<string>([dialect.tableFunction]);
+  const ormImports = new Set<string>();
   const sections: string[] = [];
 
   for (const table of schema.tables) {
-    const tableSource = generateTable(table, schema.database, tableVariables, warningsByTable.get(table.name) ?? [], columnImports);
+    const tableSource = generateTable(
+      table,
+      schema.database,
+      tableVariables,
+      warningsByTable.get(table.name) ?? [],
+      columnImports,
+      ormImports,
+    );
     sections.push(tableSource);
   }
 
   const relationTables = schema.tables.filter((table) => table.relations.some((relation) => relation.type !== 'many-to-many'));
   if (relationTables.length > 0) {
+    ormImports.add('relations');
     const relationBlocks = relationTables.map((table) => generateRelations(table, tableVariables));
-    sections.push(`import { relations } from 'drizzle-orm';\n\n${relationBlocks.join('\n\n')}`);
+    sections.push(relationBlocks.join('\n\n'));
   }
 
-  const imports = `import { ${[...columnImports].sort().join(', ')} } from '${dialect.importPath}';`;
+  const imports = [
+    `import { ${[...columnImports].sort().join(', ')} } from '${dialect.importPath}';`,
+    ...(ormImports.size > 0 ? [`import { ${[...ormImports].sort().join(', ')} } from 'drizzle-orm';`] : []),
+  ].join('\n');
   return prettier.format([imports, ...sections].join('\n\n'), { parser: 'typescript' });
 }
 
@@ -50,6 +63,7 @@ function generateTable(
   tableVariables: ReadonlyMap<string, string>,
   warnings: readonly ConversionWarning[],
   columnImports: Set<string>,
+  ormImports: Set<string>,
 ): string {
   const variableName = requiredTableVariable(table.name, tableVariables);
   const referencesByField = owningRelations(table);
@@ -57,6 +71,7 @@ function generateTable(
   const columns = table.fields.map((field) => {
     const generated = generateColumn(field, database, referencesByField.get(field.name), tableVariables);
     for (const imported of generated.imports) columnImports.add(imported);
+    for (const imported of generated.ormImports) ormImports.add(imported);
     return `${formatPropertyKey(field.name)}: ${generated.source}`;
   });
   const declaration = `export const ${variableName} = ${DIALECTS[database].tableFunction}(${quote(table.name)}, {\n${columns.map((column) => `  ${column},`).join('\n')}\n});`;
@@ -71,55 +86,62 @@ function generateColumn(
 ): GeneratedColumn {
   const generated = columnBuilder(field, database);
   const chain: string[] = [];
+  const ormImports: string[] = [];
   const sqliteAutoIncrement = database === 'sqlite' && field.type === 'Int' && field.isAutoIncrement;
 
   if (field.isRequired) chain.push('.notNull()');
   if (field.isUnique) chain.push('.unique()');
   if (field.isPrimaryKey && !sqliteAutoIncrement) chain.push('.primaryKey()');
   if (field.defaultValue !== undefined && !isAutoIncrementMarker(field.defaultValue)) {
-    chain.push(`.default(${formatDefault(field.defaultValue)})`);
+    if (isFunctionCallMarker(field.defaultValue)) {
+      ormImports.push('sql');
+      chain.push(`.default(sql\`${formatSqlFunctionCall(field.defaultValue)}\`)`);
+    } else {
+      chain.push(`.default(${formatDefault(field.defaultValue)})`);
+    }
   }
   if (relation !== undefined) {
     const targetVariable = requiredTableVariable(relation.toTable, tableVariables);
-    chain.push(`.references(() => ${targetVariable}.${formatPropertyKey(relation.toField)})`);
+    const onDelete = relation.onDelete === undefined ? '' : `, { onDelete: '${drizzleOnDelete(relation.onDelete)}' }`;
+    chain.push(`.references(() => ${targetVariable}.${formatPropertyKey(relation.toField)}${onDelete})`);
   }
-  return { source: `${generated.source}${chain.join('')}`, imports: generated.imports };
+  return { source: `${generated.source}${chain.join('')}`, imports: generated.imports, ormImports };
 }
 
 function columnBuilder(field: Field, database: Schema['database']): GeneratedColumn {
   const name = quote(field.name);
   if (field.type === 'Int') {
-    if (field.isAutoIncrement && database === 'postgresql') return { source: `serial(${name})`, imports: ['serial'] };
-    if (field.isAutoIncrement && database === 'mysql') return { source: `int(${name}).autoincrement()`, imports: ['int'] };
-    if (database === 'mysql') return { source: `int(${name})`, imports: ['int'] };
+    if (field.isAutoIncrement && database === 'postgresql') return { source: `serial(${name})`, imports: ['serial'], ormImports: [] };
+    if (field.isAutoIncrement && database === 'mysql') return { source: `int(${name}).autoincrement()`, imports: ['int'], ormImports: [] };
+    if (database === 'mysql') return { source: `int(${name})`, imports: ['int'], ormImports: [] };
     if (database === 'sqlite') {
       const suffix = field.isAutoIncrement ? '.primaryKey({ autoIncrement: true })' : '';
-      return { source: `integer(${name}, { mode: 'number' })${suffix}`, imports: ['integer'] };
+      return { source: `integer(${name}, { mode: 'number' })${suffix}`, imports: ['integer'], ormImports: [] };
     }
-    return { source: `integer(${name})`, imports: ['integer'] };
+    return { source: `integer(${name})`, imports: ['integer'], ormImports: [] };
   }
-  if (field.type === 'String') return { source: `text(${name})`, imports: ['text'] };
+  if (field.type === 'String') return { source: `text(${name})`, imports: ['text'], ormImports: [] };
   if (field.type === 'Boolean') {
     return database === 'sqlite'
-      ? { source: `integer(${name}, { mode: 'boolean' })`, imports: ['integer'] }
-      : { source: `boolean(${name})`, imports: ['boolean'] };
+      ? { source: `integer(${name}, { mode: 'boolean' })`, imports: ['integer'], ormImports: [] }
+      : { source: `boolean(${name})`, imports: ['boolean'], ormImports: [] };
   }
   if (field.type === 'DateTime') {
-    if (database === 'postgresql') return { source: `timestamp(${name})`, imports: ['timestamp'] };
-    if (database === 'mysql') return { source: `datetime(${name})`, imports: ['datetime'] };
-    return { source: `integer(${name}, { mode: 'timestamp' })`, imports: ['integer'] };
+    if (database === 'postgresql') return { source: `timestamp(${name})`, imports: ['timestamp'], ormImports: [] };
+    if (database === 'mysql') return { source: `datetime(${name})`, imports: ['datetime'], ormImports: [] };
+    return { source: `integer(${name}, { mode: 'timestamp' })`, imports: ['integer'], ormImports: [] };
   }
   if (field.type === 'Float') {
-    if (database === 'postgresql') return { source: `doublePrecision(${name})`, imports: ['doublePrecision'] };
-    if (database === 'mysql') return { source: `double(${name})`, imports: ['double'] };
-    return { source: `real(${name})`, imports: ['real'] };
+    if (database === 'postgresql') return { source: `doublePrecision(${name})`, imports: ['doublePrecision'], ormImports: [] };
+    if (database === 'mysql') return { source: `double(${name})`, imports: ['double'], ormImports: [] };
+    return { source: `real(${name})`, imports: ['real'], ormImports: [] };
   }
   if (field.type === 'Json') {
-    if (database === 'postgresql') return { source: `jsonb(${name})`, imports: ['jsonb'] };
-    if (database === 'mysql') return { source: `json(${name})`, imports: ['json'] };
-    return { source: `text(${name}, { mode: 'json' })`, imports: ['text'] };
+    if (database === 'postgresql') return { source: `jsonb(${name})`, imports: ['jsonb'], ormImports: [] };
+    if (database === 'mysql') return { source: `json(${name})`, imports: ['json'], ormImports: [] };
+    return { source: `text(${name}, { mode: 'json' })`, imports: ['text'], ormImports: [] };
   }
-  return { source: `text(${name})`, imports: ['text'] };
+  return { source: `text(${name})`, imports: ['text'], ormImports: [] };
 }
 
 /**
@@ -198,7 +220,7 @@ function navigationName(tableName: string): string {
 }
 
 function identifierFromName(name: string): string {
-  const words = name.split(/[^A-Za-z0-9_$]+/).filter((word) => word.length > 0);
+  const words = name.split(/[^A-Za-z0-9_$]+|(?<=[a-z])(?=[A-Z])/).filter((word) => word.length > 0);
   const identifier = words.map((word, index) => index === 0 ? word.toLowerCase() : capitalize(word)).join('');
   const fallback = identifier === '' ? 'table' : identifier;
   return /^[A-Za-z_$]/.test(fallback) ? fallback : `table${fallback}`;
@@ -227,7 +249,27 @@ function formatDefault(value: unknown): string {
 }
 
 function isAutoIncrementMarker(value: unknown): boolean {
-  return isRecord(value) && typeof value.name === 'string' && value.name.toLowerCase() === 'autoincrement';
+  return isFunctionCallMarker(value) && value.name.toLowerCase() === 'autoincrement';
+}
+
+function isFunctionCallMarker(value: unknown): value is { name: string; args: readonly unknown[] } {
+  return isRecord(value) && typeof value.name === 'string' && Array.isArray(value.args);
+}
+
+function formatSqlFunctionCall(marker: { name: string; args: readonly unknown[] }): string {
+  return `${marker.name}(${marker.args.map((argument) => formatSqlArgument(argument)).join(', ')})`;
+}
+
+function formatSqlArgument(value: unknown): string {
+  if (isFunctionCallMarker(value)) return formatSqlFunctionCall(value);
+  if (typeof value === 'string') return `'${value.replaceAll("'", "''")}'`;
+  return JSON.stringify(value);
+}
+
+function drizzleOnDelete(value: NonNullable<Relation['onDelete']>): string {
+  if (value === 'Cascade') return 'cascade';
+  if (value === 'SetNull') return 'set null';
+  return 'restrict';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
