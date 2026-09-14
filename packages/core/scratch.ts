@@ -96,6 +96,51 @@ model Post {
 }
 `;
 
+const mysqlSchema = `
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  posts Post[]
+}
+
+model Post {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+}
+`;
+
+const sqliteSchema = `
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  posts Post[]
+}
+
+model Post {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+}
+`;
+
+for (const s of [mysqlSchema, sqliteSchema]) {
+  parsePrismaSchema(s)
+    .then((parsed) => Promise.all([generatePrismaSchema(parsed), generateDrizzleSchema(parsed)]))
+    .then(([prismaOut, drizzleOut]) => {
+      console.log(prismaOut);
+      console.log(drizzleOut);
+    });
+}
+
 parsePrismaSchema(cascadeSchema).then((s) => {
   console.log(JSON.stringify(s, null, 2)); // confirm onDelete: "Cascade" is in the AST
   return Promise.all([generatePrismaSchema(s), generateDrizzleSchema(s)]);

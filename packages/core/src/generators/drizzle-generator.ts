@@ -120,7 +120,13 @@ function columnBuilder(field: Field, database: Schema['database']): GeneratedCol
     }
     return { source: `integer(${name})`, imports: ['integer'], ormImports: [] };
   }
-  if (field.type === 'String') return { source: `text(${name})`, imports: ['text'], ormImports: [] };
+  if (field.type === 'String') {
+    if (database === 'mysql' && (field.isUnique || field.isPrimaryKey)) {
+      // MySQL requires a key length for TEXT/BLOB keys; 191 follows convention while staying under utf8mb4 index limits.
+      return { source: `varchar(${name}, { length: 191 })`, imports: ['varchar'], ormImports: [] };
+    }
+    return { source: `text(${name})`, imports: ['text'], ormImports: [] };
+  }
   if (field.type === 'Boolean') {
     return database === 'sqlite'
       ? { source: `integer(${name}, { mode: 'boolean' })`, imports: ['integer'], ormImports: [] }
