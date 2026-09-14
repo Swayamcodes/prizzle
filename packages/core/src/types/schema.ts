@@ -10,6 +10,11 @@ export interface ConversionWarning {
   originalSource?: string;
 }
 
+export interface ValidationIssue {
+  table: string;
+  issue: string;
+}
+
 export interface Table {
   name: string;
   fields: Field[];
