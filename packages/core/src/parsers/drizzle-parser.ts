@@ -26,6 +26,18 @@ const TABLE_FUNCTIONS: ReadonlyMap<string, Database> = new Map([
   ['sqliteTable', 'sqlite'],
 ]);
 
+const KNOWN_COLUMN_METHODS: ReadonlySet<string> = new Set([
+  'primaryKey',
+  'notNull',
+  'unique',
+  'default',
+  'defaultNow',
+  'references',
+  '$type',
+  'autoincrement',
+  '$onUpdateFn',
+]);
+
 /**
  * Parses the conventional Drizzle TypeScript schema declarations into Prizzle's
  * framework-independent schema. TypeScript's parser is used so comments,
@@ -154,10 +166,13 @@ function parseColumn(
 
   for (const call of calls) {
     const methodName = calledPropertyName(call);
+    if (methodName === undefined) continue;
     if (methodName === 'primaryKey') field.isPrimaryKey = true;
     if (methodName === 'notNull') field.isRequired = true;
     if (methodName === 'unique') field.isUnique = true;
     if (methodName === 'autoincrement') field.isAutoIncrement = true;
+    if (methodName === '$onUpdateFn') field.isUpdatedAt = true;
+    if (methodName === 'defaultNow') field.defaultValue = { name: 'now', args: [] };
     if (methodName === 'default' && call.arguments[0] !== undefined) {
       field.defaultValue = valueFromExpression(call.arguments[0], sourceFile);
     }
@@ -167,6 +182,9 @@ function parseColumn(
     }
     if (methodName === '$type') {
       warn(warnings, tableName, 'Custom Drizzle .$type<T>() declarations are not supported.', call, sourceFile);
+    }
+    if (!KNOWN_COLUMN_METHODS.has(methodName)) {
+      warn(warnings, tableName, `Column '${fieldName}' uses unsupported Drizzle method '.${methodName}()'.`, call, sourceFile);
     }
   }
   if (field.isPrimaryKey) field.isRequired = true;

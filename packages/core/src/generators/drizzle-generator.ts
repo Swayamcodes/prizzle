@@ -1,5 +1,6 @@
 import prettier from 'prettier';
 
+import { KNOWN_FIELD_TYPES } from '../types/schema.js';
 import type { ConversionWarning, Field, Relation, Schema, Table } from '../types/schema.js';
 
 interface DialectConfig {
@@ -19,6 +20,8 @@ const DIALECTS: Readonly<Record<Schema['database'], DialectConfig>> = {
   sqlite: { tableFunction: 'sqliteTable', importPath: 'drizzle-orm/sqlite-core' },
 };
 
+const SQL_FUNCTION_DEFAULT_MARKERS: ReadonlySet<string> = new Set(['now']);
+
 /** Generates a formatted Drizzle schema from Prizzle's framework-independent representation. */
 export async function generateDrizzleSchema(schema: Schema): Promise<{ code: string; warnings: ConversionWarning[] }> {
   const dialect = DIALECTS[schema.database];
@@ -26,6 +29,8 @@ export async function generateDrizzleSchema(schema: Schema): Promise<{ code: str
   const warnings = [
     ...(schema.warnings ?? []),
     ...manyToManyWarnings(schema.tables),
+    ...unsupportedFieldTypeWarnings(schema.tables),
+    ...unsafeFunctionDefaultWarnings(schema.tables),
   ];
   const warningsByTable = warningsForTables(warnings);
   const columnImports = new Set<string>([dialect.tableFunction]);
@@ -93,12 +98,15 @@ function generateColumn(
   if (field.isRequired) chain.push('.notNull()');
   if (field.isUnique) chain.push('.unique()');
   if (field.isPrimaryKey && !sqliteAutoIncrement) chain.push('.primaryKey()');
-  if (field.defaultValue !== undefined && !isAutoIncrementMarker(field.defaultValue)) {
-    if (isFunctionCallMarker(field.defaultValue)) {
-      ormImports.push('sql');
-      chain.push(`.default(sql\`${formatSqlFunctionCall(field.defaultValue)}\`)`);
+  const defaultValue = field.defaultValue;
+  if (defaultValue !== undefined && !isAutoIncrementMarker(defaultValue)) {
+    if (isFunctionCallMarker(defaultValue)) {
+      if (isSqlFunctionDefaultMarker(defaultValue)) {
+        ormImports.push('sql');
+        chain.push(`.default(sql\`${formatSqlFunctionCall(defaultValue)}\`)`);
+      }
     } else {
-      chain.push(`.default(${formatDefault(field.defaultValue)})`);
+      chain.push(`.default(${formatDefault(defaultValue)})`);
     }
   }
   if (relation !== undefined) {
@@ -174,7 +182,11 @@ function generateRelations(table: Table, tableVariables: ReadonlyMap<string, str
     const owning = fieldNames.has(relation.fromField);
     const propertyName = owning ? navigationName(relation.toTable) : relation.fromField;
     const targetVariable = requiredTableVariable(relation.toTable, tableVariables);
-    if (!owning) return `${formatPropertyKey(propertyName)}: many(${targetVariable})`;
+    if (!owning) {
+      return relation.type === 'one-to-one'
+        ? `${formatPropertyKey(propertyName)}: one(${targetVariable})`
+        : `${formatPropertyKey(propertyName)}: many(${targetVariable})`;
+    }
     return `${formatPropertyKey(propertyName)}: one(${targetVariable}, { fields: [${variableName}.${formatPropertyKey(relation.fromField)}], references: [${targetVariable}.${formatPropertyKey(relation.toField)}] })`;
   });
   return `export const ${variableName}Relations = relations(${variableName}, ({ one, many }) => ({\n${properties.map((property) => `  ${property},`).join('\n')}\n}));`;
@@ -187,6 +199,27 @@ function manyToManyWarnings(tables: readonly Table[]): ConversionWarning[] {
       table: table.name,
       issue: `Many-to-many relation to '${relation.toTable}' requires an explicit join table, which is not yet generated automatically — define it manually in Drizzle.`,
     })));
+}
+
+function unsupportedFieldTypeWarnings(tables: readonly Table[]): ConversionWarning[] {
+  return tables.flatMap((table) => table.fields
+    .filter((field) => !KNOWN_FIELD_TYPES.has(field.type))
+    .map((field) => ({
+      table: table.name,
+      issue: `Field '${field.name}' has unsupported type '${field.type}' and was emitted as text.`,
+    })));
+}
+
+function unsafeFunctionDefaultWarnings(tables: readonly Table[]): ConversionWarning[] {
+  return tables.flatMap((table) => table.fields.flatMap((field) => {
+    const defaultValue = field.defaultValue;
+    if (defaultValue === undefined || !isFunctionCallMarker(defaultValue)) return [];
+    if (isAutoIncrementMarker(defaultValue) || isSqlFunctionDefaultMarker(defaultValue)) return [];
+    return [{
+      table: table.name,
+      issue: `Function default '${defaultValue.name}' on field '${field.name}' was omitted; ID-generation defaults must be handled in Drizzle application code (for example, via $defaultFn).`,
+    }];
+  }));
 }
 
 function tableVariableNames(tables: readonly Table[]): ReadonlyMap<string, string> {
@@ -257,6 +290,10 @@ function formatDefault(value: unknown): string {
 
 function isAutoIncrementMarker(value: unknown): boolean {
   return isFunctionCallMarker(value) && value.name.toLowerCase() === 'autoincrement';
+}
+
+function isSqlFunctionDefaultMarker(value: { name: string; args: readonly unknown[] }): boolean {
+  return isFunctionCallMarker(value) && SQL_FUNCTION_DEFAULT_MARKERS.has(value.name.toLowerCase());
 }
 
 function isFunctionCallMarker(value: unknown): value is { name: string; args: readonly unknown[] } {

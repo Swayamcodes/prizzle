@@ -1,3 +1,4 @@
+import { KNOWN_FIELD_TYPES } from '../types/schema.js';
 import type { ConversionWarning, Field, Relation, Schema, Table } from '../types/schema.js';
 
 /** Generates a Prisma v7 schema from Prizzle's framework-independent representation. */
@@ -6,6 +7,7 @@ export async function generatePrismaSchema(schema: Schema): Promise<{ code: stri
   const warnings = [
     ...(schema.warnings ?? []),
     ...manyToManyWarnings(schema.tables),
+    ...unsupportedFieldTypeWarnings(schema.tables),
   ];
   const warningsByTable = warningsForTables(warnings);
   const models = schema.tables.map((table) => generateModel(
@@ -131,6 +133,15 @@ function prismaType(field: Field): string {
   if (field.type === 'Float') return 'Float';
   if (field.type === 'Json') return 'Json';
   return 'String';
+}
+
+function unsupportedFieldTypeWarnings(tables: readonly Table[]): ConversionWarning[] {
+  return tables.flatMap((table) => table.fields
+    .filter((field) => !KNOWN_FIELD_TYPES.has(field.type))
+    .map((field) => ({
+      table: table.name,
+      issue: `Field '${field.name}' has unsupported type '${field.type}' and was emitted as String.`,
+    })));
 }
 
 function manyToManyWarnings(tables: readonly Table[]): ConversionWarning[] {

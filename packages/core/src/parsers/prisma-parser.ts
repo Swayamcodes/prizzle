@@ -18,6 +18,7 @@ interface DmmfField {
   isList: boolean;
   isUnique: boolean;
   isId: boolean;
+  isUpdatedAt: boolean;
   default?: unknown;
   nativeType?: readonly [string, readonly unknown[]] | null;
   relationName?: string | null;
@@ -61,9 +62,10 @@ export async function parsePrismaSchema(schemaString: string): Promise<Schema> {
 
   const warnings: ConversionWarning[] = [];
   const tables = dmmf.datamodel.models.map((model) => {
+    warnings.push(...blockIndexWarnings(schemaString, model.name));
     const compositePrimaryKey = model.primaryKey?.fields;
     if (compositePrimaryKey === undefined || compositePrimaryKey.length < 2) {
-      return mapModel(model, dmmf.datamodel.models, false);
+      return mapModel(model, dmmf.datamodel.models, false, warnings, schemaString);
     }
 
     warnings.push({
@@ -72,7 +74,7 @@ export async function parsePrismaSchema(schemaString: string): Promise<Schema> {
       originalSource: findCompositePrimaryKeySource(schemaString, model.name, compositePrimaryKey),
     });
 
-    return mapModel(model, dmmf.datamodel.models, true);
+    return mapModel(model, dmmf.datamodel.models, true, warnings, schemaString);
   });
 
   const parsedSchema: Schema = {
@@ -98,6 +100,8 @@ function mapModel(
   model: DmmfModel,
   models: readonly DmmfModel[],
   hasCompositePrimaryKey: boolean,
+  warnings: ConversionWarning[],
+  schemaString: string,
 ): Table {
   return {
     name: model.name,
@@ -106,7 +110,10 @@ function mapModel(
       .map((field) => mapField(field, hasCompositePrimaryKey)),
     relations: model.fields
       .filter((field) => field.kind === 'object')
-      .map((field) => mapRelation(model, field, models)),
+      .flatMap((field) => {
+        const relation = mapRelation(model, field, models, warnings, schemaString);
+        return relation === undefined ? [] : [relation];
+      }),
   };
 }
 
@@ -123,6 +130,9 @@ function mapField(field: DmmfField, hasCompositePrimaryKey: boolean): Field {
   if (field.default !== undefined) {
     mapped.defaultValue = field.default;
   }
+  if (field.isUpdatedAt) {
+    mapped.isUpdatedAt = true;
+  }
 
   const dbType = field.nativeType?.[0];
   if (dbType !== undefined) {
@@ -138,9 +148,27 @@ function mapField(field: DmmfField, hasCompositePrimaryKey: boolean): Field {
  * field. The inverse side has neither, so its counterpart supplies the target FK.
  * Keeping both object fields preserves relation navigation, including self-links.
  */
-function mapRelation(model: DmmfModel, field: DmmfField, models: readonly DmmfModel[]): Relation {
+function mapRelation(
+  model: DmmfModel,
+  field: DmmfField,
+  models: readonly DmmfModel[],
+  warnings: ConversionWarning[],
+  schemaString: string,
+): Relation | undefined {
   const target = findModel(models, field.type);
   const counterpart = findCounterpart(model, field, target);
+  if (hasCompositeJoinFields(field) || hasCompositeJoinFields(counterpart)) {
+    if (hasCompositeJoinFields(field)) {
+      const fromFields = field.relationFromFields ?? [];
+      const toFields = field.relationToFields ?? [];
+      warnings.push({
+        table: model.name,
+        issue: `Composite foreign key '${model.name}.${field.name}' (fields: [${fromFields.join(', ')}], references: [${toFields.join(', ')}]) cannot be represented by single-field relation metadata.`,
+        originalSource: findCompositeForeignKeySource(schemaString, model.name, field.name, fromFields, toFields),
+      });
+    }
+    return undefined;
+  }
   const ownsRelation = (field.relationFromFields?.length ?? 0) > 0;
   const type = relationType(field, counterpart);
   const fromField = ownsRelation
@@ -172,6 +200,10 @@ function mapRelation(model: DmmfModel, field: DmmfField, models: readonly DmmfMo
   }
 
   return mapped;
+}
+
+function hasCompositeJoinFields(field: DmmfField | undefined): boolean {
+  return (field?.relationFromFields?.length ?? 0) > 1 || (field?.relationToFields?.length ?? 0) > 1;
 }
 
 function findModel(models: readonly DmmfModel[], name: string): DmmfModel {
@@ -270,6 +302,60 @@ function findCompositePrimaryKeySource(
   const source = model?.match(/@@id\s*\(\s*\[[^\]]+\][^)]*\)/)?.[0];
 
   return source?.trim() ?? `@@id([${fields.join(', ')}])`;
+}
+
+function blockIndexWarnings(schema: string, modelName: string): ConversionWarning[] {
+  const model = findNamedBlock(stripComments(schema), 'model', modelName);
+  if (model === undefined) return [];
+
+  const warnings: ConversionWarning[] = [];
+  const declarations = model.matchAll(/@@(index|unique|fulltext)\s*\(\s*\[[^\]]+\][^)]*\)/g);
+  for (const declaration of declarations) {
+    const type = declaration[1];
+    const source = declaration[0];
+    if ((type !== 'index' && type !== 'unique' && type !== 'fulltext') || source === undefined) continue;
+
+    const fields = blockAttributeFields(source);
+    const construct = type === 'index'
+      ? 'Index'
+      : type === 'unique'
+        ? 'Compound unique constraint'
+        : 'Full-text index';
+    warnings.push({
+      table: modelName,
+      issue: `${construct} (${fields.join(', ')}) cannot be represented by the current schema metadata.`,
+      originalSource: blockAttributeSource(source, type, fields),
+    });
+  }
+
+  return warnings;
+}
+
+function blockAttributeFields(source: string): string[] {
+  const fieldList = source.match(/\[([^\]]+)\]/)?.[1];
+  return fieldList === undefined ? [] : fieldList.split(',').map((field) => field.trim());
+}
+
+function blockAttributeSource(source: string | undefined, type: 'index' | 'unique' | 'fulltext', fields: readonly string[]): string {
+  return source?.trim() ?? `@@${type}([${fields.join(', ')}])`;
+}
+
+function findCompositeForeignKeySource(
+  schema: string,
+  modelName: string,
+  fieldName: string,
+  fromFields: readonly string[],
+  toFields: readonly string[],
+): string {
+  const model = findNamedBlock(stripComments(schema), 'model', modelName);
+  const fieldPattern = escapeRegularExpression(fieldName);
+  const source = model?.match(new RegExp(`\\b${fieldPattern}\\b[\\s\\S]*?@relation\\s*\\([^)]*\\)`))?.[0];
+
+  return source?.trim() ?? `@relation(fields: [${fromFields.join(', ')}], references: [${toFields.join(', ')}])`;
+}
+
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function findNamedBlock(schema: string, keyword: string, name?: string): string | undefined {

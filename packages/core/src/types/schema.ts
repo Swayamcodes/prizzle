@@ -4,6 +4,15 @@ export interface Schema {
   warnings?: ConversionWarning[];
 }
 
+export const KNOWN_FIELD_TYPES: ReadonlySet<string> = new Set([
+  'Int',
+  'String',
+  'Boolean',
+  'DateTime',
+  'Float',
+  'Json',
+]);
+
 export interface ConversionWarning {
   table: string;
   issue: string;
@@ -28,6 +37,7 @@ export interface Field {
   isUnique: boolean;
   isPrimaryKey: boolean;
   isAutoIncrement: boolean;
+  isUpdatedAt?: boolean;
   defaultValue?: unknown;
   dbType?: string;
 }
