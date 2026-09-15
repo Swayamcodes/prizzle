@@ -20,13 +20,14 @@ const DIALECTS: Readonly<Record<Schema['database'], DialectConfig>> = {
 };
 
 /** Generates a formatted Drizzle schema from Prizzle's framework-independent representation. */
-export async function generateDrizzleSchema(schema: Schema): Promise<string> {
+export async function generateDrizzleSchema(schema: Schema): Promise<{ code: string; warnings: ConversionWarning[] }> {
   const dialect = DIALECTS[schema.database];
   const tableVariables = tableVariableNames(schema.tables);
-  const warningsByTable = warningsForTables([
+  const warnings = [
     ...(schema.warnings ?? []),
     ...manyToManyWarnings(schema.tables),
-  ]);
+  ];
+  const warningsByTable = warningsForTables(warnings);
   const columnImports = new Set<string>([dialect.tableFunction]);
   const ormImports = new Set<string>();
   const sections: string[] = [];
@@ -54,7 +55,7 @@ export async function generateDrizzleSchema(schema: Schema): Promise<string> {
     `import { ${[...columnImports].sort().join(', ')} } from '${dialect.importPath}';`,
     ...(ormImports.size > 0 ? [`import { ${[...ormImports].sort().join(', ')} } from 'drizzle-orm';`] : []),
   ].join('\n');
-  return prettier.format([imports, ...sections].join('\n\n'), { parser: 'typescript' });
+  return { code: await prettier.format([imports, ...sections].join('\n\n'), { parser: 'typescript' }), warnings };
 }
 
 function generateTable(

@@ -1,12 +1,13 @@
 import type { ConversionWarning, Field, Relation, Schema, Table } from '../types/schema.js';
 
 /** Generates a Prisma v7 schema from Prizzle's framework-independent representation. */
-export async function generatePrismaSchema(schema: Schema): Promise<string> {
+export async function generatePrismaSchema(schema: Schema): Promise<{ code: string; warnings: ConversionWarning[] }> {
   const modelNames = modelNamesForTables(schema.tables);
-  const warningsByTable = warningsForTables([
+  const warnings = [
     ...(schema.warnings ?? []),
     ...manyToManyWarnings(schema.tables),
-  ]);
+  ];
+  const warningsByTable = warningsForTables(warnings);
   const models = schema.tables.map((table) => generateModel(
     table,
     modelNames,
@@ -16,7 +17,7 @@ export async function generatePrismaSchema(schema: Schema): Promise<string> {
 
   // No Prisma-aware Prettier plugin is installed, so the generator preserves its
   // own stable indentation while retaining the asynchronous generator contract.
-  return await Promise.resolve(source);
+  return { code: await Promise.resolve(source), warnings };
 }
 
 function datasourceBlock(database: Schema['database']): string {
