@@ -313,7 +313,7 @@ function blockIndexWarnings(schema: string, modelName: string): ConversionWarnin
   for (const declaration of declarations) {
     const type = declaration[1];
     const source = declaration[0];
-    if ((type !== 'index' && type !== 'unique' && type !== 'fulltext') || source === undefined) continue;
+    if (type !== 'index' && type !== 'unique' && type !== 'fulltext') continue;
 
     const fields = blockAttributeFields(source);
     const construct = type === 'index'

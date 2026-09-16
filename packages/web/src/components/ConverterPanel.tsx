@@ -100,7 +100,7 @@ export function ConverterPanel(): React.JSX.Element {
           Source format
           <select
             value={sourceFormat}
-            onChange={(event) => selectSourceFormat(selectFormat(event.target.value))}
+            onChange={(event) => { selectSourceFormat(selectFormat(event.target.value)); }}
             className="rounded border border-slate-300 bg-white px-3 py-2 text-slate-900"
           >
             <option value="prisma">Prisma</option>
@@ -111,7 +111,7 @@ export function ConverterPanel(): React.JSX.Element {
           Target format
           <select
             value={targetFormat}
-            onChange={(event) => selectTargetFormat(selectFormat(event.target.value))}
+            onChange={(event) => { selectTargetFormat(selectFormat(event.target.value)); }}
             className="rounded border border-slate-300 bg-white px-3 py-2 text-slate-900"
           >
             <option value="prisma">Prisma</option>
@@ -140,7 +140,7 @@ export function ConverterPanel(): React.JSX.Element {
             height="480px"
             language={editorLanguage(sourceFormat)}
             value={sourceSchema}
-            onChange={(value) => setSourceSchema(value ?? '')}
+            onChange={(value) => { setSourceSchema(value ?? ''); }}
             options={{ minimap: { enabled: false }, wordWrap: 'on' }}
           />
         </EditorPane>
@@ -185,7 +185,7 @@ function IssueSection({ issues, title, tone }: IssueSectionProps): React.JSX.Ele
       <h2 className="text-sm font-semibold">{title}</h2>
       <ul className="mt-2 space-y-3 text-sm">
         {issues.map((issue, index) => (
-          <li key={`${issue.table}-${issue.issue}-${index}`}>
+          <li key={`${issue.table}-${issue.issue}-${String(index)}`}>
             <p><span className="font-semibold">{issue.table}:</span> {issue.issue}</p>
             {issue.originalSource !== undefined && (
               <pre className="mt-1 overflow-x-auto rounded bg-black/5 p-2 text-xs">{issue.originalSource}</pre>
