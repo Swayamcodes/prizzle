@@ -1,0 +1,8 @@
+datasource db {
+  provider = "postgresql"
+}
+model UsersToGroups {
+  userId  Int
+  groupId Int
+  @@id([userId, groupId])
+}
