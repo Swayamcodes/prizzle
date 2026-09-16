@@ -1,0 +1,59 @@
+datasource db {
+  provider  = "mysql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextIndex"]
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id        Int      @id
+  email     String   @unique
+  search    String
+  role      Role     @default(USER)
+  amount    Decimal  @default(0)
+  updatedAt DateTime @updatedAt
+  managerId Int?
+  manager   User?    @relation("Management", fields: [managerId], references: [id], onDelete: SetNull)
+  reports   User[]   @relation("Management")
+  posts     Post[]
+  groups    Group[]
+
+  @@index([search, email])
+  @@unique([email, search])
+  @@fulltext([search])
+}
+
+model Post {
+  id       Int  @id
+  authorId Int
+  author   User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}
+
+model Group {
+  id    Int    @id
+  users User[]
+}
+
+model Parent {
+  left     Int
+  right    Int
+  children Child[]
+
+  @@id([left, right])
+}
+
+model Child {
+  id          Int @id
+  parentLeft  Int
+  parentRight Int
+  parent      Parent @relation(fields: [parentLeft, parentRight], references: [left, right])
+}

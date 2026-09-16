@@ -334,6 +334,15 @@ function collectUnsupportedTableConstructs(
       if (name === 'primaryKey' && hasColumnsOption(child)) {
         warn(warnings, tableName, 'Composite primary keys cannot be represented by single-field primary key metadata.', child, sourceFile);
       }
+      if (name === 'foreignKey' && hasColumnsOption(child)) {
+        warn(
+          warnings,
+          tableName,
+          'Composite/table-level foreign keys cannot be represented by single-field relation metadata.',
+          child,
+          sourceFile,
+        );
+      }
     }
     collectUnsupportedTableConstructs(child, tableName, sourceFile, warnings);
   });
