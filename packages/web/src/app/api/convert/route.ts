@@ -4,7 +4,7 @@ import {
   parseDrizzleSchema,
   parsePrismaSchema,
   validateSchema,
-} from '@prizzle/core';
+} from '@swayamshinde/core';
 import { z } from 'zod';
 
 const conversionRequestSchema = z.object({

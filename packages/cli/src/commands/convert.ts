@@ -11,7 +11,7 @@ import {
   parseDrizzleSchema,
   parsePrismaSchema,
   validateSchema,
-} from '@prizzle/core';
+} from '@swayamshinde/core';
 
 type SchemaFormat = 'prisma' | 'drizzle';
 

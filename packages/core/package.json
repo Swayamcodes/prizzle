@@ -1,7 +1,8 @@
 {
-  "name": "@prizzle/core",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@swayamshinde/core",
+  "version": "0.1.2",
+  "license": "MIT",
+  "files": ["dist"],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,7 +13,9 @@
     "dev": "next dev --webpack"
   },
   "dependencies": {
-    "@prisma/internals": "^7.7.0"
+    "@prisma/internals": "^7.7.0",
+    "prettier": "^3.0.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

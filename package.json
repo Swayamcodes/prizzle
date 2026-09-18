@@ -2,6 +2,7 @@
   "name": "prizzle",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "packageManager": "pnpm@12.4.1",
   "engines": {
     "node": ">=22.11.0"

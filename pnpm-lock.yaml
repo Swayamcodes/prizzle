@@ -238,9 +238,9 @@ importers:
       '@inquirer/prompts':
         specifier: ^7.0.0
         version: 7.10.1(@types/node@24.13.4)
-      '@prizzle/core':
-        specifier: workspace:*
-        version: link:../core
+      '@swayamshinde/core':
+        specifier: ^0.1.2
+        version: 0.1.2
       chalk:
         specifier: ^5.6.2
         version: 5.6.2
@@ -257,6 +257,12 @@ importers:
       '@prisma/internals':
         specifier: ^7.7.0
         version: 7.10.0(@typescript/typescript6@6.0.2)
+      prettier:
+        specifier: ^3.0.0
+        version: 3.9.6
+      typescript:
+        specifier: npm:@typescript/typescript6@^6.0.2
+        version: '@typescript/typescript6@6.0.2'
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -270,9 +276,9 @@ importers:
       '@monaco-editor/react':
         specifier: ^4.7.0
         version: 4.7.0(monaco-editor@0.56.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@prizzle/core':
-        specifier: workspace:*
-        version: link:../core
+      '@swayamshinde/core':
+        specifier: ^0.1.2
+        version: 0.1.2
       next:
         specifier: ^16.3.5
         version: 16.3.5(@types/node@24.13.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -1121,6 +1127,9 @@ packages:
 
   '@streamparser/json@0.0.22':
     resolution: {integrity: sha512-b6gTSBjJ8G8SuO3Gbbj+zXbVx8NSs1EbpbMKpzGLWMdkR+98McH9bEjSz3+0mPJf68c5nxa3CrJHp5EQNXM6zQ==}
+
+  '@swayamshinde/core@0.1.2':
+    resolution: {integrity: sha512-4kOOK0zrungClV6MM+3cuBNj37ivvWE0ebLA2raAGvrhE+vpys/usjuyRZuzAhGeiDpgM4nKEx5l/eM1K2Pp7A==}
 
   '@swc/helpers@0.5.23':
     resolution: {integrity: sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw==}
@@ -2904,6 +2913,14 @@ snapshots:
   '@standard-schema/spec@1.1.0': {}
 
   '@streamparser/json@0.0.22': {}
+
+  '@swayamshinde/core@0.1.2':
+    dependencies:
+      '@prisma/internals': 7.10.0(@typescript/typescript6@6.0.2)
+      prettier: 3.9.6
+      typescript: '@typescript/typescript6@6.0.2'
+    transitivePeerDependencies:
+      - magicast
 
   '@swc/helpers@0.5.23':
     dependencies:
