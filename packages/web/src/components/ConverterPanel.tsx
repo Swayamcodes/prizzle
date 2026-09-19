@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 const MonacoEditor = dynamic(
   () => import('@monaco-editor/react').then((module) => module.Editor),
@@ -9,6 +9,41 @@ const MonacoEditor = dynamic(
 );
 
 type SchemaFormat = 'prisma' | 'drizzle';
+
+const EXAMPLE_SCHEMAS: Readonly<Record<SchemaFormat, string>> = {
+  prisma: `datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id    Int    @id @default(autoincrement())
+  email String @unique
+  posts Post[]
+}
+
+model Post {
+  id       Int  @id @default(autoincrement())
+  authorId Int
+  author   User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}`,
+  drizzle: `import { integer, pgTable, text } from 'drizzle-orm/pg-core';
+import { relations } from 'drizzle-orm';
+
+export const users = pgTable('users', {
+  id: integer('id').primaryKey(),
+  email: text('email').notNull().unique(),
+});
+
+export const posts = pgTable('posts', {
+  id: integer('id').primaryKey(),
+  authorId: integer('author_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+});
+
+export const postsRelations = relations(posts, ({ one }) => ({
+  author: one(users, { fields: [posts.authorId], references: [users.id] }),
+}));`,
+};
 
 interface ValidationIssue {
   table: string;
@@ -41,9 +76,30 @@ export function ConverterPanel(): React.JSX.Element {
   const [result, setResult] = useState<ConversionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
+  const activeRequest = useRef(0);
+  const abortController = useRef<AbortController | null>(null);
+
+  const cancelActiveRequest = (): void => {
+    activeRequest.current += 1;
+    abortController.current?.abort();
+    abortController.current = null;
+    setIsConverting(false);
+  };
 
   const handleConvert = async (): Promise<void> => {
     if (sourceFormat === targetFormat) return;
+
+    if (sourceSchema.trim() === '') {
+      setResult(null);
+      setError('Paste a schema to convert, or load the example to get started.');
+      return;
+    }
+
+    const requestId = activeRequest.current + 1;
+    activeRequest.current = requestId;
+    abortController.current?.abort();
+    const controller = new AbortController();
+    abortController.current = controller;
 
     setIsConverting(true);
     setError(null);
@@ -54,9 +110,11 @@ export function ConverterPanel(): React.JSX.Element {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceFormat, targetFormat, schema: sourceSchema }),
+        signal: controller.signal,
       });
       const body: unknown = await response.json().catch(() => null);
 
+      if (requestId !== activeRequest.current) return;
       if (!response.ok) {
         setError(responseErrorMessage(body));
         return;
@@ -67,13 +125,22 @@ export function ConverterPanel(): React.JSX.Element {
       }
       setResult(body);
     } catch (requestError: unknown) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to reach the conversion service.');
+      if (requestId !== activeRequest.current || isAbortError(requestError)) return;
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Unable to reach the conversion service.',
+      );
     } finally {
-      setIsConverting(false);
+      if (requestId === activeRequest.current) {
+        abortController.current = null;
+        setIsConverting(false);
+      }
     }
   };
 
   const selectSourceFormat = (format: SchemaFormat): void => {
+    cancelActiveRequest();
     setResult(null);
     setError(null);
     setSourceFormat(format);
@@ -81,10 +148,23 @@ export function ConverterPanel(): React.JSX.Element {
   };
 
   const selectTargetFormat = (format: SchemaFormat): void => {
+    cancelActiveRequest();
     setResult(null);
     setError(null);
     setTargetFormat(format);
     if (format === sourceFormat) setSourceFormat(otherFormat(format));
+  };
+
+  const loadExample = (): void => {
+    cancelActiveRequest();
+    setSourceSchema(EXAMPLE_SCHEMAS[sourceFormat]);
+    setResult(null);
+    setError(null);
+  };
+
+  const changeSourceSchema = (value: string | undefined): void => {
+    if (abortController.current !== null) cancelActiveRequest();
+    setSourceSchema(value ?? '');
   };
 
   const issues = result === null ? [] : [
@@ -120,11 +200,18 @@ export function ConverterPanel(): React.JSX.Element {
         </label>
         <button
           type="button"
-          onClick={() => void handleConvert()}
+          onClick={() => { void handleConvert(); }}
           disabled={isConverting || sourceFormat === targetFormat}
           className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isConverting ? 'Converting…' : 'Convert'}
+        </button>
+        <button
+          type="button"
+          onClick={loadExample}
+          className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800"
+        >
+          Load {sourceFormat === 'prisma' ? 'Prisma' : 'Drizzle'} example
         </button>
       </div>
 
@@ -140,7 +227,7 @@ export function ConverterPanel(): React.JSX.Element {
             height="480px"
             language={editorLanguage(sourceFormat)}
             value={sourceSchema}
-            onChange={(value) => { setSourceSchema(value ?? ''); }}
+            onChange={changeSourceSchema}
             options={{ minimap: { enabled: false }, wordWrap: 'on' }}
           />
         </EditorPane>
@@ -153,6 +240,12 @@ export function ConverterPanel(): React.JSX.Element {
           />
         </EditorPane>
       </div>
+
+      {sourceSchema.trim() === '' && error === null && (
+        <p className="text-sm text-slate-600">
+          Paste a schema above, or load the example to get started.
+        </p>
+      )}
 
       {issues.length > 0 && result !== null && (
         <div className="grid gap-4 lg:grid-cols-3">
@@ -213,6 +306,10 @@ function editorLanguage(format: SchemaFormat): 'plaintext' | 'typescript' {
 function responseErrorMessage(body: unknown): string {
   if (isRecord(body) && typeof body.error === 'string') return body.error;
   return 'Conversion failed.';
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
 }
 
 function isConversionResult(value: unknown): value is ConversionResult {
