@@ -1,12 +1,26 @@
 import { ConverterPanel } from '../components/ConverterPanel';
+import { HeaderLinks, HeaderResources } from '../components/HeaderResources';
 
 export default function Page(): React.JSX.Element {
   return (
-    <main className="mx-auto min-h-screen max-w-7xl bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-950">Prizzle schema converter</h1>
-        <p className="mt-2 text-slate-600">Convert Prisma and Drizzle schemas while keeping conversion details visible.</p>
+    <main
+      id="main-content"
+      className="app-shell mx-auto min-h-screen max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+    >
+      <header className="site-header workspace-enter">
+        <div>
+          <p className="wordmark" translate="no">
+            Prizzle
+          </p>
+          <h1 className="editorial-statement">Move between Prisma and Drizzle.</h1>
+          <p className="site-description">
+            Paste a schema, convert it in either direction, and review anything that needs your
+            attention.
+          </p>
+        </div>
+        <HeaderLinks />
       </header>
+      <HeaderResources />
       <ConverterPanel />
     </main>
   );

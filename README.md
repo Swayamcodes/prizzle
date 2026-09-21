@@ -4,6 +4,8 @@
 
 Prizzle converts schema files between Prisma ORM and Drizzle ORM in both directions. It is for projects migrating ORMs that need their models, scalar fields, relations, and supported constraints translated without hand-rewriting every schema; a web UI and CLI both use the same framework-independent conversion core.
 
+Try the [live web converter](https://prizzle.vercel.app), or install the [`prizzle-cli` npm package](https://www.npmjs.com/package/prizzle-cli).
+
 ## Example
 
 Prisma input:
@@ -47,7 +49,61 @@ export const userRelations = relations(user, ({ many }) => ({
 
 ## CLI
 
-From a checkout, install dependencies, build the core package and CLI, then install the CLI globally:
+Install the CLI globally from npm:
+
+```sh
+npm install -g prizzle-cli
+```
+
+Verify that it is available:
+
+```sh
+prizzle --help
+```
+
+Convert a Prisma schema to Drizzle:
+
+```sh
+prizzle convert prisma/schema.prisma --to drizzle --output drizzle/schema.ts
+```
+
+Convert a Drizzle TypeScript schema to Prisma:
+
+```sh
+prizzle convert src/db/schema.ts --to prisma --output prisma/schema.prisma
+```
+
+The `--output` option writes the converted schema to the specified file. If you omit it, the converted schema is printed to standard output.
+
+Prizzle detects the source format automatically from the input extension:
+
+- `.prisma` files are treated as Prisma schemas.
+- `.ts` files are treated as Drizzle schemas.
+
+For another extension, use `--from prisma` or `--from drizzle` explicitly:
+
+```sh
+prizzle convert schema.txt --from prisma --to drizzle
+```
+
+The command prompts you to choose Prisma or Drizzle when the extension is not `.prisma` or `.ts` and `--from` is not provided.
+
+### CLI options
+
+| Option                     | Description                                                      |
+| -------------------------- | ---------------------------------------------------------------- |
+| `<input-file>`             | Input Prisma or Drizzle schema file.                             |
+| `--to <prisma\|drizzle>`   | Required target schema format.                                   |
+| `--from <prisma\|drizzle>` | Optional source format override.                                 |
+| `--output <file>`          | Write the converted schema to a file instead of standard output. |
+
+## Web UI
+
+Use the hosted converter at [https://prizzle.vercel.app](https://prizzle.vercel.app).
+
+## Development
+
+The following commands are for contributors testing a local checkout. `pnpm add -g .` installs the locally built CLI; it is not the recommended end-user installation path.
 
 ```sh
 pnpm install
@@ -58,35 +114,15 @@ pnpm add -g .
 cd ../..
 ```
 
-If `prizzle: command not found` after this, pnpm's global bin directory isn't on your `PATH` yet:
+If `prizzle: command not found` after a local global install, pnpm's global bin directory may not be on your `PATH`:
 
 ```sh
 pnpm setup
 ```
 
-Then open a new terminal and retry `pnpm add -g .` from `packages/cli`.
+Open a new terminal, then retry `pnpm add -g .` from `packages/cli`.
 
-Convert a Prisma schema to Drizzle:
-
-```sh
-prizzle convert prisma/schema.prisma --to drizzle --output drizzle/schema.ts
-```
-
-Convert a Drizzle TypeScript schema to Prisma, letting the `.ts` extension select the source format:
-
-```sh
-prizzle convert src/db/schema.ts --to prisma --output prisma/schema.prisma
-```
-
-Use `--from prisma` or `--from drizzle` when an input filename does not end in `.prisma` or `.ts`. Without `--output`, converted code is written to standard output.
-
-```sh
-prizzle convert schema.txt --from prisma --to drizzle
-```
-
-## Web UI
-
-Install dependencies, then run the Next.js app:
+To work on the web app locally:
 
 ```sh
 pnpm install
